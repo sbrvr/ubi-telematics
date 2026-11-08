@@ -1,0 +1,11 @@
+# App runtime config; env only here (A5). Proof: evidence/lakebase_genie_app.md
+command: ["streamlit", "run", "app.py"]
+env:
+  - name: WAREHOUSE_ID
+    valueFrom: sql-warehouse
+  - name: LLM_ENDPOINT
+    valueFrom: serving-endpoint
+  - name: GENIE_SPACE_ID
+    valueFrom: genie-space
+  - name: DEMO_SELF_APPROVE
+    value: "true"

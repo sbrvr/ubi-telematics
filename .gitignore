@@ -1,0 +1,13 @@
+.databricks/
+__pycache__/
+.venv/
+.env
+*.ipynb
+*.lock
+*-lock.json
+node_modules/
+*.png
+*.jpg
+*.parquet
+*.csv
+.DS_Store

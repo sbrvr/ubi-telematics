@@ -1,0 +1,66 @@
+# Bundle: Lakeflow SDP pipeline, end-to-end job ubi_end_to_end, underwriting app. One file, no includes.
+# Proof: evidence/run_log.md (job run, task states, row counts, expectations)
+bundle:
+  name: ubi-telematics
+
+targets:
+  dev:
+    default: true
+    workspace:
+      profile: e2-demo-field-eng
+
+resources:
+  pipelines:
+    ubi_pipeline:
+      name: ubi-telematics-sdp
+      catalog: surajb
+      schema: ubi_telematics
+      serverless: true
+      photon: true
+      channel: CURRENT
+      libraries:
+        - notebook:
+            path: ./src/pipeline.py
+        - notebook:
+            path: ./src/pipeline_gold.py
+      configuration:
+        spark.sql.session.timeZone: UTC
+
+  apps:
+    ubi_app:
+      name: ubi-underwriting-console
+      description: UBI dispute queue, driver drill-down, AI drafts, four-eyes overrides, Ask Genie
+      source_code_path: ./app
+      user_api_scopes: [sql, dashboards.genie]  # on-behalf-of-user: UC masks/filters apply per person
+      resources:
+        - name: sql-warehouse
+          sql_warehouse: {id: <warehouse-id>, permission: CAN_USE}
+        - name: serving-endpoint
+          serving_endpoint: {name: databricks-claude-fable-5-1, permission: CAN_QUERY}
+        - name: genie-space
+          genie_space: {name: ubi-underwriting-analyst, space_id: <genie-space-id>, permission: CAN_RUN}
+        - name: lakebase
+          postgres:
+            branch: projects/ubi-ops-sbang/branches/production
+            database: projects/ubi-ops-sbang/branches/production/databases/<database-id>
+            permission: CAN_CONNECT_AND_CREATE
+
+  jobs:
+    ubi_end_to_end:
+      name: ubi_end_to_end
+      parameters: [{name: app_sp, default: <app-sp-id>}, {name: http_smoke, default: "{}"}]
+      environments:
+        - {environment_key: base, spec: {client: "4"}}
+        - {environment_key: geo, spec: {client: "4", dependencies: [osmnx, scipy]}}
+        - {environment_key: ml, spec: {client: "4", dependencies: [xgboost, shap, scikit-learn, mlflow]}}
+      tasks:
+        - {task_key: generate, environment_key: geo, notebook_task: {notebook_path: ./src/generate_data.py}}
+        - {task_key: pipeline_full, depends_on: [{task_key: generate}], pipeline_task: {pipeline_id: "${resources.pipelines.ubi_pipeline.id}", full_refresh: true}}
+        - {task_key: land_day30, depends_on: [{task_key: pipeline_full}], environment_key: base, notebook_task: {notebook_path: ./src/run_checks.py, base_parameters: {mode: land}}}
+        - {task_key: pipeline_incremental, depends_on: [{task_key: land_day30}], pipeline_task: {pipeline_id: "${resources.pipelines.ubi_pipeline.id}"}}
+        - {task_key: rescore, depends_on: [{task_key: pipeline_incremental}], environment_key: ml, notebook_task: {notebook_path: ./src/train_score.py, base_parameters: {mode: score}}}
+        - {task_key: sync_scores, depends_on: [{task_key: rescore}], pipeline_task: {pipeline_id: <sync-scores-pipeline-id>}}  # TRIGGERED
+        - {task_key: sync_features, depends_on: [{task_key: rescore}], pipeline_task: {pipeline_id: <sync-features-pipeline-id>}}  # SNAPSHOT
+        - {task_key: lakebase, depends_on: [{task_key: sync_scores}, {task_key: sync_features}], environment_key: base, notebook_task: {notebook_path: ./src/lakebase_setup.py, base_parameters: {app_sp: "{{job.parameters.app_sp}}"}}}
+        - {task_key: genie_bench, depends_on: [{task_key: lakebase}], environment_key: base, notebook_task: {notebook_path: ./src/genie_setup.py, base_parameters: {mode: bench}}}
+        - {task_key: checks, depends_on: [{task_key: genie_bench}], environment_key: base, notebook_task: {notebook_path: ./src/run_checks.py, base_parameters: {mode: checks, job_run_id: "{{job.run_id}}", http_smoke: "{{job.parameters.http_smoke}}", pipeline_id: "${resources.pipelines.ubi_pipeline.id}", app_dir: "${workspace.file_path}/app"}}}
