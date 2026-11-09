@@ -34,6 +34,5 @@ How the build used AI, written from the agent's running log. Proof that the resu
 - Own mistakes, cleaned up: objects created in the wrong schema, a duplicate throwaway Genie space.
 
 ## Effort (estimate, not measured)
-- **With AI:** ~18 h wall clock across two days (2026-11-06/07), including long job runs.
+- **With AI:** ~18 h to a working build (2026-11-06/07), then mock-review hardening to 11-09; incl. job runs.
 - **Without AI:** roughly 2-3 weeks (80-120 h) for a senior Databricks engineer, mostly API discovery and debugging.
-- **Session ID:** `<claude-code-session-id>`
